@@ -57,15 +57,31 @@ class ItemController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $exitstingItem = Item::find($id);
+               // Cari item berdasarkan ID
+        $item = Item::findOrFail($id);
 
-        if($exitstingItem){
-            $exitstingItem->completed = $request->item['completed'] ? true : false;
-            $exitstingItem->completed_at = $request->item['completed'] ? Carbon::now() : null;
-            $exitstingItem->save();
-            return $exitstingItem;
+        // Validasi request
+        $request->validate([
+            'proof_image' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'completed' => 'required|boolean',
+        ]);
+
+        // Simpan gambar jika ada file yang diunggah
+        if ($request->hasFile('proof_image')) {
+            $path = $request->file('proof_image')->store('proofs', 'public');
+            $item->proof_image = $path;
         }
-        return "Item Not Found";
+
+        // Perbarui status penyelesaian
+        $item->completed = $request->completed;
+
+        // Jika tugas diselesaikan, tambahkan timestamp completed_at
+        $item->completed_at = $request->completed ? Carbon::now() : null;
+
+        // Simpan perubahan
+        $item->save();
+
+        return response()->json($item, 200);
     }
 
     /**
@@ -73,13 +89,20 @@ class ItemController extends Controller
      */
     public function destroy(string $id)
     {
-        $exitstingItem = Item::find($id);
+        $item = Item::find($id);
 
-        if($exitstingItem){
-            $exitstingItem->delete();
-            return "Item Succesfully Delete";
+        if (!$item) {
+            return response()->json(['message' => 'Item Not Found'], 404); // Return HTTP 404 Not Found
         }
 
-        return "Item Not Found";
+        // Hapus gambar terkait jika ada
+        if ($item->proof_image && Storage::disk('public')->exists($item->proof_image)) {
+            Storage::disk('public')->delete($item->proof_image);
+        }
+
+        // Hapus item dari database
+        $item->delete();
+
+        return response()->json(['message' => 'Item Successfully Deleted'], 200); 
     }
 }
