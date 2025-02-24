@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Item;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
 
 class ItemController extends Controller
 {
@@ -14,7 +15,9 @@ class ItemController extends Controller
      */
     public function index()
     {
-        return Item::orderBy('created_at', 'DESC')->get();
+        return Cache::remember('items', 60, function () {
+            return Item::orderBy('created_at', 'DESC')->get();
+        });
     }
 
     /**
@@ -25,6 +28,8 @@ class ItemController extends Controller
         $newItem = new Item;
         $newItem->name = $request->item["name"];
         $newItem->save();
+
+        Cache::forget('items'); // Hapus cache agar data diperbarui
 
         return $newItem;
     }
@@ -40,6 +45,8 @@ class ItemController extends Controller
             $existingItem->completed = $request->item['completed'] ? true : false;
             $existingItem->completed_at = $request->item['completed'] ? Carbon::now() : null;
             $existingItem->save();
+            
+            Cache::forget('items');
             return $existingItem;
         }
         return response()->json(['error' => 'Item not found'], 404);
@@ -54,6 +61,7 @@ class ItemController extends Controller
 
         if ($existingItem) {
             $existingItem->delete();
+            Cache::forget('items');
             return response()->json(['message' => 'Item successfully deleted']);
         }
 
