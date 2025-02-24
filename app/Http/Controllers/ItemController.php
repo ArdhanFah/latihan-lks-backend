@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Item;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 class ItemController extends Controller
 {
@@ -15,14 +16,6 @@ class ItemController extends Controller
     {
         return Item::orderBy('created_at', 'DESC')->get();
     }
-
-    // /**
-    //  * Show the form for creating a new resource.
-    //  */
-    // public function create()
-    // {
-    //     //
-    // }
 
     /**
      * Store a newly created resource in storage.
@@ -37,51 +30,19 @@ class ItemController extends Controller
     }
 
     /**
-     * Display the specified resource.
-     */
-    // public function show(string $id)
-    // {
-    //     //
-    // }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    // public function edit(string $id)
-    // {
-    //     //
-    // }
-
-    /**
      * Update the specified resource in storage.
      */
     public function update(Request $request, string $id)
     {
-               // Cari item berdasarkan ID
-        $item = Item::findOrFail($id);
+        $existingItem = Item::find($id);
 
-        // Validasi request
-        $request->validate([
-            'proof_image' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'completed' => 'required|boolean',
-        ]);
-
-        // Simpan gambar jika ada file yang diunggah
-        if ($request->hasFile('proof_image')) {
-            $path = $request->file('proof_image')->store('proofs', 'public');
-            $item->proof_image = $path;
+        if ($existingItem) {
+            $existingItem->completed = $request->item['completed'] ? true : false;
+            $existingItem->completed_at = $request->item['completed'] ? Carbon::now() : null;
+            $existingItem->save();
+            return $existingItem;
         }
-
-        // Perbarui status penyelesaian
-        $item->completed = $request->completed;
-
-        // Jika tugas diselesaikan, tambahkan timestamp completed_at
-        $item->completed_at = $request->completed ? Carbon::now() : null;
-
-        // Simpan perubahan
-        $item->save();
-
-        return response()->json($item, 200);
+        return response()->json(['error' => 'Item not found'], 404);
     }
 
     /**
@@ -89,20 +50,46 @@ class ItemController extends Controller
      */
     public function destroy(string $id)
     {
+        $existingItem = Item::find($id);
+
+        if ($existingItem) {
+            $existingItem->delete();
+            return response()->json(['message' => 'Item successfully deleted']);
+        }
+
+        return response()->json(['error' => 'Item not found'], 404);
+    }
+
+    /**
+     * Handle photo upload and approve completion.
+     */
+    public function approveCompletion(Request $request, $id)
+    {
+        $request->validate([
+            'photo' => 'required|image|mimes:jpg,png,jpeg|max:2048',
+        ]);
+
         $item = Item::find($id);
 
         if (!$item) {
-            return response()->json(['message' => 'Item Not Found'], 404); // Return HTTP 404 Not Found
+            return response()->json(['error' => 'Item not found'], 404);
         }
 
-        // Hapus gambar terkait jika ada
-        if ($item->proof_image && Storage::disk('public')->exists($item->proof_image)) {
-            Storage::disk('public')->delete($item->proof_image);
-        }
+        // Generate path unik untuk file
+        $filePath = 'uploads/items/' . $id . '/' . uniqid() . '.' . $request->file('photo')->getClientOriginalExtension();
 
-        // Hapus item dari database
-        $item->delete();
+        // Upload ke S3
+        Storage::disk('s3')->put($filePath, file_get_contents($request->file('photo')), 'public');
 
-        return response()->json(['message' => 'Item Successfully Deleted'], 200); 
+        // Dapatkan URL dari S3
+        $fileUrl = Storage::disk('s3')->url($filePath);
+
+        // Simpan URL ke database
+        $item->photo_url = $fileUrl;
+        $item->completed = true;
+        $item->completed_at = now();
+        $item->save();
+
+        return response()->json($item);
     }
 }
